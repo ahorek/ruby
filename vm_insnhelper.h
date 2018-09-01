@@ -15,6 +15,7 @@
 RUBY_SYMBOL_EXPORT_BEGIN
 
 RUBY_EXTERN VALUE ruby_vm_const_missing_count;
+RUBY_EXTERN rb_serial_t ruby_vm_global_timestamp;
 RUBY_EXTERN rb_serial_t ruby_vm_global_method_state;
 RUBY_EXTERN rb_serial_t ruby_vm_global_constant_state;
 RUBY_EXTERN rb_serial_t ruby_vm_class_serial;
@@ -164,7 +165,34 @@ enum vm_regan_acttype {
 } while (0)
 #endif
 
-#define CALL_METHOD(calling, ci, cc) do { \
+#if OPT_CALL_THREADED_CODE
+#define CURRENT_INSN_IS_POP() ((rb_insn_func_t)GET_CURRENT_INSN() == LABEL(pop))
+#elif OPT_DIRECT_THREADED_CODE
+#define CURRENT_INSN_IS_POP() (GET_CURRENT_INSN() == (VALUE)LABEL_PTR(pop))
+#elif OPT_TOKEN_THREADED_CODE
+#define CURRENT_INSN_IS_POP() (GET_CURRENT_INSN() == (VALUE)LABEL_PTR(pop))
+#else  /* so-called no-threaded */
+#define CURRENT_INSN_IS_POP() (GET_CURRENT_INSN() == BIN(pop))
+#endif
+#ifdef MJIT_HEADER /* MJIT_HEADER lacks LABEL_PTR() */
+#undef CURRENT_INSN_IS_POP
+#endif
+
+#ifdef CURRENT_INSN_IS_POP
+#define CALL_METHOD(q, w, e) \
+    if (CURRENT_INSN_IS_POP() && \
+        vm_whether_we_can_skip_this_call_site_p(q, e)) { \
+        ADJ_SP(INSN_ATTR(sp_inc) - 1); /* pop recv and argv from stack */ \
+        val = Qundef;                  /* dummy retval (not used) */ \
+    } \
+    else { \
+        CALL_METHOD_SLOWPATH(q, w, e); \
+    }
+#else
+#define CALL_METHOD(q, w, e) CALL_METHOD_SLOWPATH(q, w, e)
+#endif
+
+#define CALL_METHOD_SLOWPATH(calling, ci, cc) do { \
     VALUE v = (*(cc)->call)(ec, GET_CFP(), (calling), (ci), (cc)); \
     if (v == Qundef) { \
         EXEC_EC_CFP(val); \
@@ -183,10 +211,17 @@ enum vm_regan_acttype {
 #endif
 
 #if OPT_CALL_FASTPATH
+#define CC_RESET_PURITY(cc) do { \
+    (cc)->purity = Qundef; \
+    (cc)->updated_at = ruby_vm_global_timestamp - 1; \
+} while (0)
+
 #define CI_SET_FASTPATH(cc, func, enabled) do { \
+    if (LIKELY(enabled)) CC_RESET_PURITY(cc); \
     if (LIKELY(enabled)) ((cc)->call = (func)); \
 } while (0)
 #else
+#define CC_RESET_PURITY(cc) /* do nothing */
 #define CI_SET_FASTPATH(ci, func, enabled) /* do nothing */
 #endif
 
@@ -223,6 +258,14 @@ enum vm_regan_acttype {
 #define INC_GLOBAL_METHOD_STATE() (++ruby_vm_global_method_state)
 #define GET_GLOBAL_CONSTANT_STATE() (ruby_vm_global_constant_state)
 #define INC_GLOBAL_CONSTANT_STATE() (++ruby_vm_global_constant_state)
+
+#if RUBY_ATOMIC_GENERIC_MACRO
+# define INC_GLOBAL_TIMESTAMP() ATOMIC_INC(ruby_vm_global_timestamp)
+#elif defined(HAVE_LONG_LONG) && (SIZEOF_SIZE_T == SIZEOF_LONG_LONG)
+# define INC_GLOBAL_TIMESTAMP() ATOMIC_SIZE_INC(ruby_vm_global_timestamp)
+#else
+# define INC_GLOBAL_TIMESTAMP() (++ruby_vm_global_timestamp)
+#endif
 
 extern rb_method_definition_t *rb_method_definition_create(rb_method_type_t type, ID mid);
 extern void rb_method_definition_set(const rb_method_entry_t *me, rb_method_definition_t *def, void *opts);
