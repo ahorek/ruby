@@ -6261,6 +6261,7 @@ rb_ary_sum(int argc, VALUE *argv, VALUE ary)
  *
  */
 
+COLDFUNC(void Init_Array(void));
 void
 Init_Array(void)
 {

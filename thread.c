@@ -5021,6 +5021,7 @@ rb_thread_backtrace_locations_m(int argc, VALUE *argv, VALUE thval)
  *     note: use sleep to stop forever
  */
 
+COLDFUNC(void Init_Thread(void));
 void
 Init_Thread(void)
 {
