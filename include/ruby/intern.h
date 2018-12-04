@@ -506,6 +506,7 @@ void st_foreach_safe(struct st_table *, int (*)(ANYARGS), st_data_t);
 VALUE rb_check_hash_type(VALUE);
 void rb_hash_foreach(VALUE, int (*)(ANYARGS), VALUE);
 VALUE rb_hash(VALUE);
+VALUE rb_hash_resurrect(VALUE hash);
 VALUE rb_hash_new(void);
 VALUE rb_hash_dup(VALUE);
 VALUE rb_hash_freeze(VALUE);
