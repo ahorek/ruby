@@ -98,6 +98,12 @@ rb_hash_set_ifnone(VALUE hash, VALUE ifnone)
     return hash;
 }
 
+VALUE
+rb_hash_resurrect(VALUE hash)
+{
+    return rb_hash_dup(hash);
+}
+
 static int
 rb_any_cmp(VALUE a, VALUE b)
 {
