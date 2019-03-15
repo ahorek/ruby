@@ -201,8 +201,8 @@ print_backtrace(const VALUE eclass, const VALUE errat, const VALUE str, int reve
 		     (len < threshold ? 0 : 9) + 1);
 
 #define TRACE_MAX (TRACE_HEAD+TRACE_TAIL+5)
-#define TRACE_HEAD 8
-#define TRACE_TAIL 5
+#define TRACE_HEAD 100
+#define TRACE_TAIL 100
 
 	for (i = 1; i < len; i++) {
 	    VALUE line = RARRAY_AREF(errat, reverse ? len - i : i);
