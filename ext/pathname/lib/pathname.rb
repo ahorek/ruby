@@ -34,6 +34,12 @@ class Pathname
     SEPARATOR_LIST = "#{Regexp.quote File::SEPARATOR}"
     SEPARATOR_PAT = /#{Regexp.quote File::SEPARATOR}/
   end
+  
+  if File.dirname('A:') == 'A:.' # DOSish drive letter
+    ABSOLUTE_PATH = /\A(?:[A-Za-z]:|#{SEPARATOR_PAT})/o
+  else
+    ABSOLUTE_PATH = /\A#{SEPARATOR_PAT}/o
+  end
 
   # :startdoc:
 
@@ -222,7 +228,7 @@ class Pathname
   #   p.absolute?
   #       #=> false
   def absolute?
-    !relative?
+    ABSOLUTE_PATH.match? @path
   end
 
   # The opposite of Pathname#absolute?
@@ -237,11 +243,7 @@ class Pathname
   #   p.relative?
   #       #=> true
   def relative?
-    path = @path
-    while r = chop_basename(path)
-      path, = r
-    end
-    path == ''
+    !absolute?
   end
 
   #

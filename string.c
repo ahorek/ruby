@@ -1318,7 +1318,7 @@ str_new_empty(VALUE str)
     return v;
 }
 
-#define STR_BUF_MIN_SIZE 127
+#define STR_BUF_MIN_SIZE 63
 
 VALUE
 rb_str_buf_new(long capa)
