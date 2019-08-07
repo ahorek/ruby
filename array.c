@@ -2528,7 +2528,7 @@ rb_ary_to_ary_m(VALUE ary)
 }
 
 static void
-ary_reverse(VALUE *p1, VALUE *p2)
+ary_reverse(VALUE * restrict p1, VALUE * restrict p2)
 {
     while (p1 < p2) {
 	VALUE tmp = *p1;
@@ -2587,8 +2587,8 @@ rb_ary_reverse_m(VALUE ary)
     VALUE dup = rb_ary_new2(len);
 
     if (len > 0) {
-        const VALUE *p1 = RARRAY_CONST_PTR_TRANSIENT(ary);
-        VALUE *p2 = (VALUE *)RARRAY_CONST_PTR_TRANSIENT(dup) + len - 1;
+        const VALUE * restrict p1 = RARRAY_CONST_PTR_TRANSIENT(ary);
+        VALUE * restrict p2 = (VALUE *)RARRAY_CONST_PTR_TRANSIENT(dup) + len - 1;
 	do *p2-- = *p1++; while (--len > 0);
     }
     ARY_SET_LEN(dup, RARRAY_LEN(ary));
