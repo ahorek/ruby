@@ -705,7 +705,7 @@ rb_f_srand(int argc, VALUE *argv, VALUE obj)
 static unsigned long
 make_mask(unsigned long x)
 {
-    return (2 << ((SIZEOF_LONG - 1) - nlz_long(x))) - 1;
+    return (2 << ((SIZEOF_LONG - 1) - __builtin_clzl(x))) - 1;
 }
 
 static unsigned long
