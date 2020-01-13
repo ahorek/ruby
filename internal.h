@@ -528,6 +528,55 @@ ntz_intptr(uintptr_t x)
 VALUE rb_int128t2big(int128_t n);
 #endif
 
+static inline void
+ruby_reverse(void* dst, void* src, size_t len) {
+    uint8_t* dst8 = (uint8_t*) (dst);
+    uint8_t* src8 = (uint8_t*) (src);
+    size_t i = 0;
+    for (size_t j = i / 8; j < len / 16; ++j) {
+        size_t u = len - i - 8;
+        uint64_t low = swap64(*(uint64_t*) (&src8[i]));
+        uint64_t up = swap64(*(uint64_t*) (&src8[u]));
+
+        *(uint64_t*) (&dst8[i]) = up;
+        *(uint64_t*) (&dst8[u]) = low;
+
+        i += 8;
+    }
+    for (size_t j = i / 4; j < len / 8; ++j) {
+        size_t u = len - i - 4;
+        uint32_t low = swap32(*(uint32_t*) (&src8[i]));
+        uint32_t up = swap32(*(uint32_t*) (&src8[u]));
+
+        *(uint32_t*) (&dst8[i]) = up;
+        *(uint32_t*) (&dst8[u]) = low;
+
+        i += 4;
+    }
+    for (size_t j = i / 2; j < len / 4; ++j) {
+        size_t u = len - i - 2;
+        uint16_t low = swap16(*(uint16_t*) (&src8[i]));
+        uint16_t up = swap16(*(uint16_t*) (&src8[u]));
+
+        *(uint16_t*) (&dst8[i]) = up;
+        *(uint16_t*) (&dst8[u]) = low;
+
+        i += 2;
+    }
+
+    size_t offset = len - i - 1;
+    uint8_t* src_end = src8 + offset;
+    uint8_t* dst_end = dst8 + offset;
+    src8 += i;
+    dst8 += i;
+
+    for (int i = 0; src8 <= src_end && i < 2; i++) {
+        uint8_t tmp = *src8++;
+        *dst8++ = *src_end--;
+        *dst_end-- = tmp;
+    }
+}
+
 static inline long
 rb_overflowed_fix_to_int(long x)
 {

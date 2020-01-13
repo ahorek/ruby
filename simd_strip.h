@@ -41,7 +41,7 @@ static const char isspacetable_0[256] = {
 
 #if defined __SSE2__
 #include <immintrin.h>
-#include "ruby/internal.h"
+#include "internal.h"
 
 static int lstrip_mask(__m128i x)
 {
@@ -106,7 +106,7 @@ lstrip_offset_sb(const char *s, const char *e)
     } else if (mask16 == 65535) {
         s += 16;
     } else {
-        s += ntz_int32(mask16 ^ 65535);
+        s += __builtin_ctz(mask16 ^ 65535);
         return s - start;
     }
   }
@@ -126,7 +126,7 @@ rstrip_offset_sb(const char *s, const char *e)
     } else if (mask16 == 65535) {
         t -= 16;
     } else {
-        t -= nlz_int32(mask16 ^ 65535) - 16;
+        t -= __builtin_clz(mask16 ^ 65535) - 16;
         return e - t;
     }
   }
