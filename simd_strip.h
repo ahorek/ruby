@@ -41,7 +41,7 @@ static const char isspacetable_0[256] = {
 
 #if defined __SSE2__
 #include <immintrin.h>
-#include "internal/bits.h"
+#include "ruby/internal.h"
 
 static int lstrip_mask(__m128i x)
 {
