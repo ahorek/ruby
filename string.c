@@ -21,6 +21,8 @@
 #include "id.h"
 #include "debug_counter.h"
 #include "ruby/util.h"
+#include "simd_encoding_check.h"
+#include "simd_strip.h"
 
 #define BEG(no) (regs->beg[(no)])
 #define END(no) (regs->end[(no)])
@@ -530,18 +532,65 @@ search_nonascii(const char *p, const char *e)
     }
 }
 
+static inline bool
+is_valid_ascii(const char *p, long len)
+{
+#ifdef SIMD_ENCODING_CHECK
+    return validate_ascii_fast(p, len);
+#else
+    return !search_nonascii(p, p + len);
+#endif
+}
+
+static inline bool
+is_valid_utf8(const char *p, long len)
+{
+#ifdef SIMD_ENCODING_CHECK
+    return validate_utf8_fast(p, len);
+#else
+    const char *e;
+    e = p + len;
+    p = search_nonascii(p, e);
+    if (!p) return true;
+    for (;;) {
+        int ret = rb_enc_precise_mbclen(p, e, rb_utf8_encoding());
+        if (!MBCLEN_CHARFOUND_P(ret)) return false;
+        p += MBCLEN_CHARFOUND_LEN(ret);
+        if (p == e) break;
+        p = search_nonascii(p, e);
+        if (!p) break;
+    }
+    return true;
+#endif
+}
+
 static int
 coderange_scan(const char *p, long len, rb_encoding *enc)
 {
-    const char *e = p + len;
+    const char *e;
 
-    if (rb_enc_to_index(enc) == rb_ascii8bit_encindex()) {
-        /* enc is ASCII-8BIT.  ASCII-8BIT string never be broken. */
-        p = search_nonascii(p, e);
-        return p ? ENC_CODERANGE_VALID : ENC_CODERANGE_7BIT;
+    switch (rb_enc_to_index(enc)) {
+        case ENCINDEX_ASCII:
+            /* enc is ASCII-8BIT.  ASCII-8BIT string never be broken. */
+            return is_valid_ascii(p, len) ? ENC_CODERANGE_7BIT : ENC_CODERANGE_VALID;
+        case ENCINDEX_US_ASCII:
+            return is_valid_ascii(p, len) ? ENC_CODERANGE_7BIT : ENC_CODERANGE_BROKEN;
+        #ifdef SIMD_ENCODING_CHECK
+        case RUBY_ENCINDEX_UTF_8:
+            if (is_valid_ascii(p, len)) return ENC_CODERANGE_7BIT;
+            if (is_valid_utf8(p, len)) return ENC_CODERANGE_VALID;
+            return ENC_CODERANGE_BROKEN;
+        #endif
     }
 
     if (rb_enc_asciicompat(enc)) {
+        #ifdef SIMD_ENCODING_CHECK
+        if (is_valid_ascii(p, len)) {
+            return ENC_CODERANGE_7BIT;
+        }
+        #endif
+
+        e = p + len;
         p = search_nonascii(p, e);
         if (!p) return ENC_CODERANGE_7BIT;
         for (;;) {
@@ -554,6 +603,7 @@ coderange_scan(const char *p, long len, rb_encoding *enc)
         }
     }
     else {
+        e = p + len;
         while (p < e) {
             int ret = rb_enc_precise_mbclen(p, e, enc);
             if (!MBCLEN_CHARFOUND_P(ret)) return ENC_CODERANGE_BROKEN;
@@ -635,11 +685,10 @@ rb_enc_cr_str_copy_for_substr(VALUE dest, VALUE src)
 	ENC_CODERANGE_SET(dest, ENC_CODERANGE_7BIT);
 	break;
       case ENC_CODERANGE_VALID:
-	if (!rb_enc_asciicompat(STR_ENC_GET(src)) ||
-	    search_nonascii(RSTRING_PTR(dest), RSTRING_END(dest)))
-	    ENC_CODERANGE_SET(dest, ENC_CODERANGE_VALID);
-	else
+	if (rb_enc_asciicompat(STR_ENC_GET(src)) && is_valid_ascii(RSTRING_PTR(dest), RSTRING_LEN(dest)))
 	    ENC_CODERANGE_SET(dest, ENC_CODERANGE_7BIT);
+	else
+	    ENC_CODERANGE_SET(dest, ENC_CODERANGE_VALID);
 	break;
       default:
 	break;
@@ -1045,7 +1094,7 @@ rb_external_str_new_with_enc(const char *ptr, long len, rb_encoding *eenc)
 
     /* ASCII-8BIT case, no conversion */
     if ((eidx == rb_ascii8bit_encindex()) ||
-	(eidx == rb_usascii_encindex() && search_nonascii(ptr, ptr + len))) {
+        (eidx == rb_usascii_encindex() && !is_valid_ascii(ptr, len))) {
         return rb_str_new(ptr, len);
     }
     /* no default_internal or same encoding, no conversion */
@@ -1056,8 +1105,8 @@ rb_external_str_new_with_enc(const char *ptr, long len, rb_encoding *eenc)
     /* ASCII compatible, and ASCII only string, no conversion in
      * default_internal */
     if ((eidx == rb_ascii8bit_encindex()) ||
-	(eidx == rb_usascii_encindex()) ||
-	(rb_enc_asciicompat(eenc) && !search_nonascii(ptr, ptr + len))) {
+        (eidx == rb_usascii_encindex()) ||
+        (rb_enc_asciicompat(eenc) && is_valid_ascii(ptr, len))) {
         return rb_enc_str_new(ptr, len, ienc);
     }
     /* convert from the given encoding to default_internal */
@@ -1065,7 +1114,7 @@ rb_external_str_new_with_enc(const char *ptr, long len, rb_encoding *eenc)
     /* when the conversion failed for some reason, just ignore the
      * default_internal and result in the given encoding as-is. */
     if (NIL_P(rb_str_cat_conv_enc_opts(str, 0, ptr, len, eenc, 0, Qnil))) {
-	rb_str_initialize(str, ptr, len, eenc);
+        rb_str_initialize(str, ptr, len, eenc);
     }
     return str;
 }
@@ -5621,19 +5670,18 @@ rb_str_reverse(VALUE str)
     VALUE rev;
     char *s, *e, *p;
     int cr;
+    size_t len = RSTRING_LEN(str);
 
-    if (RSTRING_LEN(str) <= 1) return rb_str_dup(str);
+    if (len <= 1) return rb_str_dup(str);
     enc = STR_ENC_GET(str);
     rev = rb_str_new_with_class(str, 0, RSTRING_LEN(str));
     s = RSTRING_PTR(str); e = RSTRING_END(str);
     p = RSTRING_END(rev);
     cr = ENC_CODERANGE(str);
 
-    if (RSTRING_LEN(str) > 1) {
+    if (len > 1) {
 	if (single_byte_optimizable(str)) {
-	    while (s < e) {
-		*--p = *s++;
-	    }
+            ruby_reverse(RSTRING_PTR(rev), s, len);
 	}
 	else if (cr == ENC_CODERANGE_VALID) {
 	    while (s < e) {
@@ -5657,7 +5705,7 @@ rb_str_reverse(VALUE str)
 	    }
 	}
     }
-    STR_SET_LEN(rev, RSTRING_LEN(str));
+    STR_SET_LEN(rev, len);
     str_enc_copy(rev, str);
     ENC_CODERANGE_SET(rev, cr);
 
@@ -5675,18 +5723,12 @@ rb_str_reverse(VALUE str)
 static VALUE
 rb_str_reverse_bang(VALUE str)
 {
-    if (RSTRING_LEN(str) > 1) {
-	if (single_byte_optimizable(str)) {
-	    char *s, *e, c;
-
-	    str_modify_keep_cr(str);
-	    s = RSTRING_PTR(str);
-	    e = RSTRING_END(str) - 1;
-	    while (s < e) {
-		c = *s;
-		*s++ = *e;
-		*e-- = c;
-	    }
+    size_t len = RSTRING_LEN(str);
+    if (len > 1) {
+        if (single_byte_optimizable(str)) {
+            str_modify_keep_cr(str);
+            char *s = RSTRING_PTR(str);
+            ruby_reverse(s, s, len);
 	}
 	else {
 	    str_shared_replace(str, rb_str_reverse(str));
@@ -7786,27 +7828,6 @@ rb_fs_check(VALUE val)
     return val;
 }
 
-static const char isspacetable[256] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
-
-#define ascii_isspace(c) isspacetable[(unsigned char)(c)]
-
 static long
 split_string(VALUE result, VALUE str, long beg, long len, long empty_count)
 {
@@ -8992,7 +9013,7 @@ lstrip_offset(VALUE str, const char *s, const char *e, rb_encoding *enc)
 
     /* remove spaces at head */
     if (single_byte_optimizable(str)) {
-	while (s < e && ascii_isspace(*s)) s++;
+        return lstrip_offset_sb(s, e);
     }
     else {
 	while (s < e) {
@@ -9081,8 +9102,7 @@ rstrip_offset(VALUE str, const char *s, const char *e, rb_encoding *enc)
 
     /* remove trailing spaces or '\0's */
     if (single_byte_optimizable(str)) {
-	unsigned char c;
-	while (s < t && ((c = *(t-1)) == '\0' || ascii_isspace(c))) t--;
+        return rstrip_offset_sb(s, e);
     }
     else {
 	char *tp;

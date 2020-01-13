@@ -2023,7 +2023,7 @@ rb_scan_args_parse(int kw_flag, int argc, const VALUE *argv, const char *fmt, st
         if (arg->f_hash && arg->n_mand < argc) {
             if (keyword_given) {
                 if (!RB_TYPE_P(last, T_HASH)) {
-                    rb_warn("Keyword flag set when calling rb_scan_args, but last entry is not a hash");
+                    //rb_warn("Keyword flag set when calling rb_scan_args, but last entry is not a hash");
                 }
                 else {
                     arg->hash = last;
@@ -2035,7 +2035,7 @@ rb_scan_args_parse(int kw_flag, int argc, const VALUE *argv, const char *fmt, st
                    not specified and arguments are given more than sufficient.
                    This will be removed in Ruby 3. */
                 if (!arg->f_var && arg->n_mand + arg->n_opt < argc) {
-                    rb_warn("The last argument is nil, treating as empty keywords");
+                    //rb_warn("The last argument is nil, treating as empty keywords");
                     argc--;
                 }
             }
@@ -2051,14 +2051,14 @@ rb_scan_args_parse(int kw_flag, int argc, const VALUE *argv, const char *fmt, st
                     if (!keyword_given && !last_hash_keyword) {
                         /* Warn if treating positional as keyword, as in Ruby 3,
                            this will be an error */
-                        rb_warn("Using the last argument as keyword parameters is deprecated");
+                        //rb_warn("Using the last argument as keyword parameters is deprecated");
                     }
                     argc--;
                 }
                 else {
                     /* Warn if splitting either positional hash to keywords or keywords
                        to positional hash, as in Ruby 3, no splitting will be done */
-                    rb_warn("The last argument is split into positional and keyword parameters");
+                    //rb_warn("The last argument is split into positional and keyword parameters");
                     arg->last_idx = argc - 1;
                 }
                 arg->hash = opts ? opts : Qnil;
@@ -2066,7 +2066,7 @@ rb_scan_args_parse(int kw_flag, int argc, const VALUE *argv, const char *fmt, st
         }
         else if (arg->f_hash && keyword_given && arg->n_mand == argc) {
             /* Warn if treating keywords as positional, as in Ruby 3, this will be an error */
-            rb_warn("Passing the keyword argument as the last hash parameter is deprecated");
+            //rb_warn("Passing the keyword argument as the last hash parameter is deprecated");
         }
     }
     if (arg->f_hash && arg->n_mand == argc+1 && empty_keyword_given) {
@@ -2075,7 +2075,7 @@ rb_scan_args_parse(int kw_flag, int argc, const VALUE *argv, const char *fmt, st
         ptr[argc] = rb_hash_new();
         argc++;
         *(&argv) = ptr;
-        rb_warn("Passing the keyword argument as the last hash parameter is deprecated");
+        //rb_warn("Passing the keyword argument as the last hash parameter is deprecated");
     }
 
     arg->argc = argc;

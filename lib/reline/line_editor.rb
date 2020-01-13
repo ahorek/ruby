@@ -317,7 +317,7 @@ class Reline::LineEditor
     if @menu_info
       scroll_down(@highest_in_all - @first_line_started_from)
       @rerender_all = true
-      @menu_info.list.each do |item|
+      @menu_info.list.sort!.each do |item|
         Reline::IOGate.move_cursor_column(0)
         @output.print item
         @output.flush
@@ -905,7 +905,6 @@ class Reline::LineEditor
         quote = nil
         i += 1
         rest = nil
-        break_pointer = nil
       elsif quote and slice.start_with?(escaped_quote)
         # skip
         i += 2
@@ -915,10 +914,11 @@ class Reline::LineEditor
         closing_quote = /(?!\\)#{Regexp.escape(quote)}/
         escaped_quote = /\\#{Regexp.escape(quote)}/
         i += 1
-        break_pointer = i
+        break_pointer = i - 1
       elsif not quote and slice =~ word_break_regexp
         rest = $'
         i += 1
+        before = @line.byteslice(i, @byte_pointer - i)
         break_pointer = i
       else
         i += 1
@@ -936,6 +936,11 @@ class Reline::LineEditor
       end
     else
       preposing = ''
+      if break_pointer
+        preposing = @line.byteslice(0, break_pointer)
+      else
+        preposing = ''
+      end
       target = before
     end
     [preposing.encode(@encoding), target.encode(@encoding), postposing.encode(@encoding)]
@@ -1090,6 +1095,11 @@ class Reline::LineEditor
 
   private def ed_insert(key)
     if key.instance_of?(String)
+      begin
+        key.encode(Encoding::UTF_8)
+      rescue Encoding::UndefinedConversionError
+        return
+      end
       width = Reline::Unicode.get_mbchar_width(key)
       if @cursor == @cursor_max
         @line += key
@@ -1100,6 +1110,11 @@ class Reline::LineEditor
       @cursor += width
       @cursor_max += width
     else
+      begin
+        key.chr.encode(Encoding::UTF_8)
+      rescue Encoding::UndefinedConversionError
+        return
+      end
       if @cursor == @cursor_max
         @line += key.chr
       else

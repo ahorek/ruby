@@ -41,16 +41,23 @@ class Reline::ANSI
   end
 
   def self.retrieve_keybuffer
+    begin
       result = select([@@input], [], [], 0.001)
       return if result.nil?
       str = @@input.read_nonblock(1024)
       str.bytes.each do |c|
         @@buf.push(c)
       end
+    rescue EOFError
+    end
   end
 
   def self.get_screen_size
-    @@input.winsize
+    s = @@input.winsize
+    return s if s[0] > 0 && s[1] > 0
+    s = [ENV["LINES"].to_i, ENV["COLUMNS"].to_i]
+    return s if s[0] > 0 && s[1] > 0
+    [24, 80]
   rescue Errno::ENOTTY
     [24, 80]
   end
